@@ -1,0 +1,32 @@
+apiVersion : apps/v1
+kind: Deployment
+metadata:
+  name: workeracoesdotnet6kafkaredis 
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: workeracoesdotnet6kafkaredis
+  template:
+    metadata:
+      labels:
+        app: workeracoesdotnet6kafkaredis 
+    spec:
+      containers:
+        - name: workeracoesdotnet6kafkaredis 
+          image: groffeazuredevops.azurecr.io/workeracoesdotnet6kafkaredis
+          env:
+          - name: ConnectionStrings__RedisServer
+            valueFrom:
+              secretKeyRef:
+                name: workeracoes-secret
+                key: RedisConnection
+          - name: ApacheKafka__Topic
+            value: topic-acoes
+          - name: ApacheKafka__GroupId
+            value: workeracoes
+          - name: ApacheKafka__Broker
+            valueFrom:
+              secretKeyRef:
+                name: workeracoes-secret
+                key: KafkaBroker

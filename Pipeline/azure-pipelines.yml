@@ -1,0 +1,144 @@
+trigger:
+- main
+
+
+resources:
+  containers:
+    - container: redis
+      image: redis:alpine
+      networks: 
+      - testes
+      ports:
+        - 6379:6379 
+    - container: zookeeper
+      image: confluentinc/cp-zookeeper:latest
+      networks: 
+      - testes
+      env:
+        ZOOKEEPER_CLIENT_PORT: 2181
+        ZOOKEEPER_TICK_TIME: 2000
+      ports:
+        - 2181:2181 
+    - container: kafka
+      image: confluentinc/cp-kafka:latest
+      networks: 
+      - testes
+      depends_on:
+      - zookeeper
+      env:
+        KAFKA_BROKER_ID: 1
+        KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+        KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+        KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+        KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+        KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      ports:
+        - 9092:9092
+
+variables:
+  dockerRegistryServiceConnection: 'CONNECTION'
+  imageRepository: 'workeracoesdotnet6kafkaredis'
+  containerRegistry: 'ENDPOINT CONTAINER REGISTRY'
+  dockerfilePath: '**/Dockerfile'
+  tag: '$(Build.BuildId)'
+  imagePullSecret: 'SECRET IMAGE'
+
+  # Agent VM image name
+  vmImageName: 'ubuntu-latest'
+
+  Path_Projeto: ./WorkerAcoes
+  Path_Projeto_Testes: ./WorkerAcoes.IntegrationTests
+  File_Log_Execucao_WorkerAcoes: log-execucao-workeracoes.log
+  IntervaloProcessamento: 5000
+  ConnectionStrings__RedisServer: 'localhost,port: 6379'
+  ApacheKafka__Broker: localhost:9092
+  ApacheKafka__Topic: topic-acoes
+  ApacheKafka__GroupId: azuredevops
+
+stages:
+- stage: Tests
+  displayName: Tests stage
+  jobs:
+  - job: Testes
+    displayName: Testes de integraçao
+    pool:
+      vmImage: $(vmImageName)
+    services:
+      redis: redis
+      zookeeper: zookeeper
+      kafka: kafka
+    steps:
+    - script: docker container ls
+      displayName: Exibir containers em execução
+    - script: |
+        dotnet publish $(Path_Projeto) -c Release -o app
+        cd ./app
+        nohup dotnet WorkerAcoes.dll > $(File_Log_Execucao_WorkerAcoes) 2>&1 &
+        echo 'Aguardando a inicialização da aplicação a ser testada...'
+        sleep 20s
+      displayName: Executar a aplicação a ser testada em background (nohup)
+    - task: DotNetCoreCLI@2
+      displayName: Execução dos testes de integração
+      inputs:
+        command: 'test'
+        projects: '$(Path_Projeto_Testes)'
+    - script: |
+        cd ./app
+        cat $(File_Log_Execucao_WorkerAcoes)
+      displayName: Exibir log de execução da aplicação testada
+      condition: Always()
+
+
+- stage: Build
+  dependsOn: Tests
+  displayName: Build stage
+  jobs:
+  - job: Build
+    displayName: Build
+    pool:
+      vmImage: $(vmImageName)
+    steps:
+    - task: Docker@2
+      displayName: Build and push an image to container registry
+      inputs:
+        command: buildAndPush
+        repository: $(imageRepository)
+        dockerfile: $(dockerfilePath)
+        containerRegistry: $(dockerRegistryServiceConnection)
+        tags: |
+          $(tag)
+
+    - upload: manifests
+      artifact: manifests
+
+- stage: Deploy
+  displayName: Deploy stage
+  dependsOn: Build
+
+  jobs:
+  - deployment: Deploy
+    displayName: Deploy
+    pool:
+      vmImage: $(vmImageName)
+    environment: 'Exemplo.acoes'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: KubernetesManifest@0
+            displayName: Create imagePullSecret
+            inputs:
+              action: createSecret
+              secretName: $(imagePullSecret)
+              dockerRegistryEndpoint: $(dockerRegistryServiceConnection)
+
+          - task: KubernetesManifest@0
+            displayName: Deploy to Kubernetes cluster
+            inputs:
+              action: deploy
+              manifests: |
+                $(Pipeline.Workspace)/manifests/deployment.yml
+              imagePullSecrets: |
+                $(imagePullSecret)
+              containers: |
+                $(containerRegistry)/$(imageRepository):$(tag)
