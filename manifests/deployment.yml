@@ -1,20 +1,20 @@
 apiVersion : apps/v1
 kind: Deployment
 metadata:
-  name: workeracoesdotnet6kafkaredis 
+  name: workeracoesmsreactor 
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: workeracoesdotnet6kafkaredis
+      app: workeracoesmsreactor
   template:
     metadata:
       labels:
-        app: workeracoesdotnet6kafkaredis 
+        app: workeracoesmsreactor 
     spec:
       containers:
-        - name: workeracoesdotnet6kafkaredis 
-          image: groffeazuredevops.azurecr.io/workeracoesdotnet6kafkaredis
+        - name: workeracoesmsreactor 
+          image: groffeazuredevops.azurecr.io/workeracoesmsreactor
           env:
           - name: ConnectionStrings__RedisServer
             valueFrom:
@@ -22,7 +22,7 @@ spec:
                 name: workeracoes-secret
                 key: RedisConnection
           - name: ApacheKafka__Topic
-            value: topic-acoes
+            value: topic-acoes-testes
           - name: ApacheKafka__GroupId
             value: workeracoes
           - name: ApacheKafka__Broker
@@ -30,3 +30,13 @@ spec:
               secretKeyRef:
                 name: workeracoes-secret
                 key: KafkaBroker
+          - name: ApacheKafka__Username
+            valueFrom:
+              secretKeyRef:
+                name: workeracoes-secret
+                key: KafkaUsername
+          - name: ApacheKafka__Password
+            valueFrom:
+              secretKeyRef:
+                name: workeracoes-secret
+                key: KafkaPassword                                
